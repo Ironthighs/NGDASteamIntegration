@@ -1,0 +1,15 @@
+Build/Receipts/**
+Build/WindowsNoEditor/**
+Saved/**
+Intermediate/**
+WindowsNoEditor/**
+Binaries/**
+Content/**
+DerivedDataCache/**
+
+*.opensdf
+*.suo
+*.sdf
+*.sln
+*.VC.opendb
+*.VC.db
