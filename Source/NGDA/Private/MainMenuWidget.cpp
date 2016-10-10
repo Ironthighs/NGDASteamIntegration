@@ -60,12 +60,3 @@ ANGDAGameSession* UMainMenuWidget::GetGameSession()
 	}
 	return gameSession;
 }
-
-void UMainMenuWidget::PostLoad()
-{
-	Super::PostLoad();
-	IOnlineSubsystem* onlineSubsystem = IOnlineSubsystem::Get();
-	IOnlineIdentityPtr onlineIdPtr = onlineSubsystem->GetIdentityInterface();
-
-//	onlineSubsystem->SetUsingMultiplayerFeatures(*(onlineIdPtr->GetUniquePlayerId(0)), true);
-}

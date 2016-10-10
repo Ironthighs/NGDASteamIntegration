@@ -29,7 +29,4 @@ public:
 
 	void FindSessionComplete(bool wasSuccessful);
 
-	virtual void PostLoad() override;
-
-
 };

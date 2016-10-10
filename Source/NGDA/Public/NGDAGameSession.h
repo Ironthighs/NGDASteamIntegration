@@ -32,8 +32,6 @@ protected:
 
 public:
 
-	ANGDAGameSession(const FObjectInitializer& ObjectInitializer);
-
 	FOnCreateSessionCompleteDelegate OnCreateSessionCompleteDelegate;
 	FOnStartSessionCompleteDelegate OnStartSessionCompleteDelegate;
 	FOnFindSessionsCompleteDelegate OnFindSessionsCompleteDelegate;

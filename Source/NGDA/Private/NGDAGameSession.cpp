@@ -4,14 +4,6 @@
 #include "UnrealMath.h"
 #include "NGDAGameSession.h"
 
-ANGDAGameSession::ANGDAGameSession(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
-{
-	//OnCreateSessionCompleteDelegate = FOnCreateSessionCompleteDelegate::CreateUObject(this, &ANGDAGameSession::OnCreateSessionComplete);
-	//OnStartSessionCompleteDelegate = FOnStartSessionCompleteDelegate::CreateUObject(this, &ANGDAGameSession::OnStartSessionComplete);
-}
-
-
 bool ANGDAGameSession::CreateSession(TSharedPtr<const FUniqueNetId> playerId, const FString& MapName, bool bIsLAN, bool bIsPresence, int32 MaxNumPlayers)
 {
 	if (!OnCreateSessionCompleteDelegate.IsBound())
@@ -70,9 +62,6 @@ void ANGDAGameSession::OnCreateSessionComplete(FName sessionName, bool wasSucces
 	if (wasSuccessful)
 	{
 		GEngine->AddOnScreenDebugMessage(-1, 5, FColor::Green, TEXT("Session Created Successfully!"));
-//		GetWorld()->ServerTravel(TravelURL);
-
-//		UGameplayStatics::OpenLevel(GetWorld(), "MyLevel", true, "listen");
 		bCreatingSession = true;
 		StartSession(sessionName);
 	}
