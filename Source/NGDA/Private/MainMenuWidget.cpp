@@ -47,7 +47,7 @@ bool UMainMenuWidget::OnClickJoinGame()
 	IOnlineSubsystem* onlineSubsystem = IOnlineSubsystem::Get();
 	IOnlineIdentityPtr onlineIdentitySystem = onlineSubsystem->GetIdentityInterface();
 	FOnlineSessionSearchResult searchResult = gameSession->GetSearchResults()[0];
-	return gameSession->JoinSession(onlineIdentitySystem->GetUniquePlayerId(0), FName("Doesn't Matter"), searchResult);
+	return gameSession->JoinSession(onlineIdentitySystem->GetUniquePlayerId(0), FName(*(searchResult.Session.OwningUserName)), searchResult);
 }
 
 ANGDAGameSession* UMainMenuWidget::GetGameSession()
@@ -60,7 +60,6 @@ ANGDAGameSession* UMainMenuWidget::GetGameSession()
 	}
 	return gameSession;
 }
-
 
 void UMainMenuWidget::PostLoad()
 {

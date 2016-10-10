@@ -7,17 +7,17 @@
 ANGDAGameSession::ANGDAGameSession(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	OnCreateSessionCompleteDelegate = FOnCreateSessionCompleteDelegate::CreateUObject(this, &ANGDAGameSession::OnCreateSessionComplete);
-	OnStartSessionCompleteDelegate = FOnStartSessionCompleteDelegate::CreateUObject(this, &ANGDAGameSession::OnStartSessionComplete);
+	//OnCreateSessionCompleteDelegate = FOnCreateSessionCompleteDelegate::CreateUObject(this, &ANGDAGameSession::OnCreateSessionComplete);
+	//OnStartSessionCompleteDelegate = FOnStartSessionCompleteDelegate::CreateUObject(this, &ANGDAGameSession::OnStartSessionComplete);
 }
 
 
 bool ANGDAGameSession::CreateSession(TSharedPtr<const FUniqueNetId> playerId, const FString& MapName, bool bIsLAN, bool bIsPresence, int32 MaxNumPlayers)
 {
-	//if (!OnCreateSessionCompleteDelegate.IsBound())
-	//{
-	//	OnCreateSessionCompleteDelegate = FOnCreateSessionCompleteDelegate::CreateUObject(this, &ANGDAGameSession::OnCreateSessionComplete);
-	//}
+	if (!OnCreateSessionCompleteDelegate.IsBound())
+	{
+		OnCreateSessionCompleteDelegate = FOnCreateSessionCompleteDelegate::CreateUObject(this, &ANGDAGameSession::OnCreateSessionComplete);
+	}
 
 	// Get Unreal's OnlineSubsystem. This is an interface that allows different OnlineSubsystems to be used.
 	// Currently we're using the Steam OnlineSubsystem.
@@ -84,10 +84,10 @@ void ANGDAGameSession::OnCreateSessionComplete(FName sessionName, bool wasSucces
 
 bool ANGDAGameSession::StartSession(FName sessionName)
 {
-	/*if (!OnStartSessionCompleteDelegate.IsBound())
+	if (!OnStartSessionCompleteDelegate.IsBound())
 	{
 		OnStartSessionCompleteDelegate = FOnStartSessionCompleteDelegate::CreateUObject(this, &ANGDAGameSession::OnStartSessionComplete);
-	}*/
+	}
 	IOnlineSubsystem* onlineSubsystem = IOnlineSubsystem::Get();
 	IOnlineSessionPtr session = onlineSubsystem->GetSessionInterface();
 	OnStartSessionCompleteDelegateHandle = session->AddOnStartSessionCompleteDelegate_Handle(OnStartSessionCompleteDelegate);
@@ -189,7 +189,7 @@ bool ANGDAGameSession::JoinSession(TSharedPtr<const FUniqueNetId> playerId, FNam
 		IOnlineSessionPtr sessionPtr = onlineSubsystem->GetSessionInterface();
 
 		OnJoinSessionCompleteDelegateHandle = sessionPtr->AddOnJoinSessionCompleteDelegate_Handle(OnJoinSessionCompleteDelegate);
-		bool joinCalled = sessionPtr->JoinSession(*playerId, FName(*(searchResult.Session.OwningUserName)), searchResult);
+		bool joinCalled = sessionPtr->JoinSession(*playerId, sessionName /*FName(*(searchResult.Session.OwningUserName))*/, searchResult);
 
 		if (joinCalled)
 		{
