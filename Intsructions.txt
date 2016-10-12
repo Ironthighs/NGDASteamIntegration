@@ -1,0 +1,399 @@
+Unreal Engine 4  v4.13
+Implementing Steam SDK Into Your Game
+
+1. Have Steam
+2. Make new C++ project
+3. Open project.Build.cs 
+	-Add:
+	PrivateDependencyModuleNames.Add("OnlineSubsystem");
+4. Open Config/DefaultEngine.ini
+	-Add:
+
+[/Script/Engine.GameEngine]
+!NetDriverDefinitions=ClearArray
++NetDriverDefinitions=(DefName="GameNetDriver",DriverClassName="/Script/OnlineSubsystemSteam.SteamNetDriver",DriverClassNameFallback="/Script/OnlineSubsystemUtils.IpNetDriver")
+
+[OnlineSubsystem]
+bEnabled=true
+DefaultPlatformService=Steam
+PollingIntervalInMs=20
+
+[OnlineSubsystemSteam]
+bEnabled=true
+SteamDevAppId=480
+GameServerQueryPort=27015
+bRelaunchInSteam=false
+GameVersion=1.0.0.0
+bVACEnabled=1
+bAllowP2PPacketRelay=true
+P2PConnectionTimeout=90
+
+[/Script/OnlineSubsystemSteam.SteamNetDriver]
+NetConnectionClassName="/Script/OnlineSubsystemSteam.SteamNetConnection"
+
+
+	-This specifies that the default online service is Steam. Steam comes ready to use in the Unreal Engine. The [OnlineSubsystemSteam] block configures the Steam online subsystem. The SteamDevAppId 480 is Valve's test app for developers to use when testing their games. When you run your game Steam will show that you are playing Space War or something. These settings I got from a Rama tutorial, I think. I haven't taken the time to see if they are 100% necessary.
+	
+5. Run the editor and go to Editor>Plugins>Online Platform and enable Online Subsystem Steam. Restart the editor.
+
+https://answers.unrealengine.com/questions/484873/413-steam-setup-not-working.html
+	
+	
+	-Once you run your game, you will now have the Steam overlay already working.
+	
+	-Must run game using "Standalone Game" option when testing actual networked play.
+	
+
+	
+6. Create a new class to inherit from AGameSession. This will be where we store the logic to create/join/leave Steam sessions.
+
+7. Let's hook up the new game session class to be used in the game now. Open the project's game mode header and add:
+
+	public:
+		virtual TSubclassOf<AGameSession> GetGameSessionClass() const override;
+
+	-Then go to the implementation class and add:
+	
+	TSubclassOf<class AGameSession> ANGDAGameMode::GetGameSessionClass()
+	{
+		return ANGDAGameSession::StaticClass();
+	}
+
+	-The game will now use your GameSession class for its default game session instance.
+	
+	
+###### Creating a Game Session ######
+	
+	
+8. Now we will add some delegates for callbacks when session stuff is completed.
+
+	-In the game session header, include "Online.h" and add the following class members:
+	
+	FOnCreateSessionCompleteDelegate OnCreateSessionCompleteDelegate;
+	FOnStartSessionCompleteDelegate OnStartSessionCompleteDelegate;
+	FOnFindSessionsCompleteDelegate OnFindSessionsCompleteDelegate;
+	FOnJoinSessionCompleteDelegate OnJoinSessionCompleteDelegate;
+
+	-Also we'll add DelegateHandles which will give us references to the bindings we made:
+	
+	FDelegateHandle OnCreateSessionCompleteDelegateHandle;
+	FDelegateHandle OnStartSessionCompleteDelegateHandle;
+	FDelegateHandle OnFindSessionsCompleteDelegateHandle;
+	FDelegateHandle OnJoinSessionCompleteDelegateHandle;
+	
+	-And let's add an FString for the TravelURL once a session is created.
+	
+	FString TravelURL;
+	
+9. Let's now implement the ability to create a game session. This is like a virtual, non-tangible, non-visible room that people's client's can join.
+
+	-First add to the header a publicly scoped CreateSession method:
+	
+	bool CreateSession(TSharedPtr<const FUniqueNetId> playerId, const FString& MapName, bool bIsLAN, bool bIsPresence, int32 MaxNumPlayers);
+	
+	-On TSharedPtr<...> objects, you must dereference them to get the value. In this case, we would put *playerId  in order to get the FUniqueNetId. This will be useful to know later.
+	-I have CreateSession return a bool to let me know if just calling the method to create the session failed. This doesn't mean the OnlineSubsystem failed at creating the session. That's later.
+	
+	-Next add the implementation of our CreateSession method:
+	
+	bool ANGDAGameSession::CreateSession(TSharedPtr<const FUniqueNetId> playerId, const FString& MapName, bool bIsLAN, bool bIsPresence, int32 MaxNumPlayers)
+	{
+		if (!OnCreateSessionCompleteDelegate.IsBound())
+		{
+			OnCreateSessionCompleteDelegate = FOnCreateSessionCompleteDelegate::CreateUObject(this, &ANGDAGameSession::OnCreateSessionComplete);
+		}
+		
+		// Get Unreal's OnlineSubsystem. This is an interface that allows different OnlineSubsystems to be used.
+		// Currently we're using the Steam OnlineSubsystem.
+		IOnlineSubsystem* onlineSubsystem = IOnlineSubsystem::Get();
+
+		// Get the SessionInterface from the OnlineSubsystem which will be used to create a session.
+		IOnlineSessionPtr session = onlineSubsystem->GetSessionInterface();
+
+		// The StartURL will be used after creating the game session as the place to ServerTravel to.
+		// This will be received by the clients connecting to the host which they will use to load the 
+		// proper map and whatever else information provided in the URL.
+		// We store the StartURL for later.
+		TravelURL = FString::Printf(TEXT("/Game/Maps/%s%s"), *MapName, TEXT("?listen"));
+
+		if (session.IsValid() && playerId.IsValid())
+		{
+			TSharedPtr<class FOnlineSessionSettings> sessionSettings = MakeShareable(new FOnlineSessionSettings());
+			sessionSettings->bIsLANMatch = bIsLAN;
+			sessionSettings->bUsesPresence = bIsPresence;
+			sessionSettings->NumPublicConnections = MaxNumPlayers;
+			sessionSettings->bShouldAdvertise = true;
+			sessionSettings->bAllowJoinViaPresence = true;
+			sessionSettings->Set(SETTING_MAPNAME, MapName, EOnlineDataAdvertisementType::ViaOnlineService);
+			OnCreateSessionCompleteDelegateHandle = session->AddOnCreateSessionCompleteDelegate_Handle(OnCreateSessionCompleteDelegate);
+			UWorld* world = GetWorld();
+			session->CreateSession(*playerId, FName(TEXT("NGDAGameSession")), *sessionSettings);
+			return true;
+		}
+
+		return false;
+	}
+
+	
+10. Add the OnCreateSessionComplete method declaration to the header:
+
+	void OnCreateSessionComplete(FName sessionName, bool wasSuccessful);
+
+	-Then add the implementation:
+	
+	void ANGDAGameSession::OnCreateSessionComplete(FName sessionName, bool wasSuccessful)
+	{
+		IOnlineSubsystem* onlineSubsystem = IOnlineSubsystem::Get();
+		IOnlineSessionPtr session = onlineSubsystem->GetSessionInterface();
+		session->ClearOnCreateSessionCompleteDelegate_Handle(OnCreateSessionCompleteDelegateHandle);
+		if (wasSuccessful)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 5, FColor::Green, TEXT("Session Created Successfully!"));
+			GetWorld()->ServerTravel(TravelURL);
+		}
+		else
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 5, FColor::Green, TEXT("Session Creation Failed!"));
+		}
+	}
+
+
+
+11. Now we're going to add the StartSession method which marks a session as in progress instead of being in a lobby or pending. Add the declarations:
+
+	void StartSession(FName sessionName);
+	void OnStartSessionComplete(FName InSessionName, bool bWasSuccessful);
+
+	-Add the implementation:
+
+	bool ANGDAGameSession::FindSession(TSharedPtr<const FUniqueNetId> playerId)
+	{
+		if (!OnFindSessionsCompleteDelegate.IsBound())
+		{
+			OnFindSessionsCompleteDelegate = FOnFindSessionsCompleteDelegate::CreateUObject(this, &ANGDAGameSession::OnFindSessionComplete);
+		}
+
+		IOnlineSubsystem* onlineSubsystem = IOnlineSubsystem::Get();
+		IOnlineSessionPtr session = onlineSubsystem->GetSessionInterface();
+		IOnlineIdentityPtr identitySubsystem = onlineSubsystem->GetIdentityInterface();
+		SessionSearch = MakeShareable(new FOnlineSessionSearch());
+		SessionSearch->bIsLanQuery = false;
+		SessionSearch->MaxSearchResults = 20;
+		SessionSearch->PingBucketSize = 50;
+		SessionSearch->QuerySettings.Set(SEARCH_PRESENCE, true, EOnlineComparisonOp::Equals);
+		OnFindSessionsCompleteDelegateHandle = session->AddOnFindSessionsCompleteDelegate_Handle(OnFindSessionsCompleteDelegate);
+		return session->FindSessions(*playerId, SessionSearch.ToSharedRef());
+	}
+	
+	void ANGDAGameSession::OnStartSessionComplete(FName InSessionName, bool bWasSuccessful)
+	{
+		IOnlineSubsystem* onlineSubsystem = IOnlineSubsystem::Get();
+		IOnlineSessionPtr session = onlineSubsystem->GetSessionInterface();
+		session->ClearOnStartSessionCompleteDelegate_Handle(OnStartSessionCompleteDelegateHandle);
+		if (bWasSuccessful)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 5, FColor::Green, TEXT("Session Started Successfully!"));
+			GetWorld()->ServerTravel(TravelURL);
+		}
+		else
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 5, FColor::Green, TEXT("Session Failed to Start!"));
+		}
+	}
+
+
+	-This is all we need for creating the session for now.
+
+
+12. Add a new class that inherits from UWidget. This is going to be our test menu.
+
+13. Add a BlueprintCallable UFUNCTION called OnClickCreateGame:
+
+	UFUNCTION(BlueprintCallable, Category = "Online")
+	bool OnClickCreateGame();
+	
+	-And add the implementation:
+	bool UMainMenuWidget::OnClickCreateGame()
+	{
+		UWorld* world = GetWorld();
+		GEngine->AddOnScreenDebugMessage(-1, 5, FColor::Green, TEXT("Clicked Create Game"));
+
+		if (world)
+		{
+			ANGDAGameSession* gameSession = Cast<ANGDAGameSession>(world->GetAuthGameMode()->GameSession);
+			IOnlineSubsystem* onlineSubsystem = IOnlineSubsystem::Get();
+			IOnlineIdentityPtr onlineIdentitySystem = onlineSubsystem->GetIdentityInterface();
+			gameSession->CreateSession(onlineIdentitySystem->GetUniquePlayerId(0), FString("Minimal_Default"), false, true, 4);
+		}
+
+		return true;
+	}
+	
+14. Create a Blueprint that inherits from your default project game mode and assign it as the game mode in your world settings.
+
+15. Create a Blueprint that inherits from HUD and assign it in the game mode as the default hud.
+
+16. Create a Blueprint that inherits from the UWidget you created for your main menu.
+
+17. Add a button to the new Main Menu blueprint that, when clicked, calls its OnClickCreateGame method.
+
+18. In the HUD blueprint you made, create a Main Menu blueprint widget and add it to the viewport of the PlayerController whose index is 0 (our local player). Connect this up to the Begin Play event.
+
+19. Run the game in stand-alone mode. Press Shift+F1 to get the mouse to appear, then click the Create Game button you made. If everything was done correctly, a message should appear on screen saying a session was created successfully.
+
+
+###### Finding a Game Session ######
+
+
+20. Add to the Game Session a FindSessions method that takes a TSharedPtr<const FUniqueNetId> playerId as a parameter.
+
+	bool FindSession(TSharedPtr<const FUniqueNetId> playerId);
+	
+21. Also add a method to call when the Find Session call is complete with a bool as the parameter denoting if the call was successful or not:
+
+	void OnFindSessionComplete(bool wasSuccessful);
+
+22. Add the implementation:
+
+	bool ANGDAGameSession::FindSession(TSharedPtr<const FUniqueNetId> playerId)
+	{
+		if (!OnFindSessionsCompleteDelegate.IsBound())
+		{
+			OnFindSessionsCompleteDelegate = FOnFindSessionsCompleteDelegate::CreateUObject(this, &ANGDAGameSession::OnFindSessionComplete);
+		}
+
+		IOnlineSubsystem* onlineSubsystem = IOnlineSubsystem::Get();
+		IOnlineSessionPtr session = onlineSubsystem->GetSessionInterface();
+
+		TSharedPtr<class FOnlineSearch> searchSettings = MakeShareable(new FOnlineSearch());
+		TSharedPtr<class FOnlineSessionSearch> SearchSettingsRef = searchSettings->ToSharedRef();
+		SearchSettingsRef->bIsLanQuery = false;
+		SearchSettingsRef->MaxSearchResults = 20;
+		SearchSettingsRef->QuerySettings.Set(SEARCH_PRESENCE, true, EOnlineComparisonOp::Equals);
+
+		OnFindSessionsCompleteDelegateHandle = session->AddOnFindSessionsCompleteDelegate_Handle(OnFindSessionsCompleteDelegate);
+
+		session->FindSessions(*playerId, SearchSettingsRef);
+
+	}
+
+	void ANGDAGameSession::OnFindSessionComplete(bool wasSuccessful)
+	{
+		IOnlineSubsystem* onlineSubsystem = IOnlineSubsystem::Get();
+		IOnlineSessionPtr session = onlineSubsystem->GetSessionInterface();
+		session->ClearOnFindSessionsCompleteDelegate_Handle(OnFindSessionsCompleteDelegateHandle);
+		if (wasSuccessful)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 5f, FColor::Green, TEXT("Successfully Called Find Sessions!"));
+		}
+		else
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 5f, FColor::Green, TEXT("Find Sessions Call Failed!"));
+		}
+	}
+	
+23. Add to the C++ Main Menu widget a method for when a Find Sessions button is clicked. The declaration:
+
+	UFUNCTION(BlueprintCallable, Category = "Online")
+	bool OnClickFindSession();
+	
+	-Add the implementation:
+	
+	bool UMainMenuWidget::OnClickFindSessions()
+	{
+		UWorld* world = GetWorld();
+		
+		if (world)
+		{
+			ANGDAGameSession* gameSession = Cast<ANGDAGameSession>(world->GetAuthGameMode()->GameSession);
+			IOnlineSubsystem* onlineSubsystem = IOnlineSubsystem::Get();
+			IOnlineIdentityPtr onlineIdentitySystem = onlineSubsystem->GetIdentityInterface();
+			gameSession->FindSession(onlineIdentitySystem->GetUniquePlayerId(0));
+		}
+
+		return true;
+	}
+	
+24. Now add a button for Finding Sessions to the Menu Widget blueprint that calls the new OnClickFindSessions method.
+
+25. Deploy and run the game on two computers using different Steam accounts. One one computer, create a session. On the other, click Find Sessions. If a message appears telling you you have found one session, you did it right.
+
+
+###### Joining Sessions ######
+
+
+26. In your NGDAGameSession class, add a JoinSession method that takes a TSharedPtr<const FUniqueNetId>, FName, and const FOnlineSessionSearchResult reference for the playerId, sessionName, and the searchResult from FindSession of the session you want to join. We'll have it return a bool to indicate whether it was successful in calling JoinSession or not.
+
+We also want to add the OnJoinSessionComplete method that takess in an FName and joinResult. These parameters indicate the sessionName the player just joined and whether joining was successful or not.
+
+	-Add to the header:
+	
+	bool JoinSession(TSharedPtr<const FUniqueNetId> playerId, FName sessionName, const FOnlineSessionSearchResult& searchResult);
+	void OnJoinSessionComplete(FName sessionName, EOnJoinSessionCompleteResult::Type joinResult);
+
+	-Add to the implementation:
+	
+	bool ANGDAGameSession::JoinSession(TSharedPtr<const FUniqueNetId> playerId, FName sessionName, const FOnlineSessionSearchResult& searchResult)
+	{
+		if (!OnJoinSessionCompleteDelegate.IsBound())
+		{
+			OnJoinSessionCompleteDelegate = FOnJoinSessionCompleteDelegate::CreateUObject(this, &ANGDAGameSession::OnJoinSessionComplete);
+		}
+
+		IOnlineSubsystem* onlineSubsystem = IOnlineSubsystem::Get();
+		
+		if (onlineSubsystem)
+		{
+			IOnlineIdentityPtr identityPtr = onlineSubsystem->GetIdentityInterface();
+			IOnlineSessionPtr sessionPtr = onlineSubsystem->GetSessionInterface();
+
+			OnJoinSessionCompleteDelegateHandle = sessionPtr->AddOnJoinSessionCompleteDelegate_Handle(OnJoinSessionCompleteDelegate);
+			bool joinCalled = sessionPtr->JoinSession(*playerId, FName(*(searchResult.Session.OwningUserName)), searchResult);
+
+			if (joinCalled)
+			{
+				GEngine->AddOnScreenDebugMessage(-1, 5, FColor::Green, TEXT("Join Called"));
+			}
+			else
+			{
+				GEngine->AddOnScreenDebugMessage(-1, 5, FColor::Green, TEXT("Join Failed"));
+			}
+		}
+		return false;
+	}
+
+	void ANGDAGameSession::OnJoinSessionComplete(FName sessionName, EOnJoinSessionCompleteResult::Type joinResult)
+	{
+		if (joinResult == EOnJoinSessionCompleteResult::Success)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 5, FColor::Green, FString("Successfully Joined %s").Append(sessionName.ToString()));
+			bCreatingSession = false;
+			StartSession(sessionName);
+		}
+		else
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 5, FColor::Green, TEXT("Failed to join"));
+
+		}
+	}
+
+27. Now we want to add a method to the Main Menu Widget for when a "Join Game" button is pressed. In the MainMenuWidget header, add a BlueprintCallable UFUNCTION called OnClickJoinGame that returns a boolean to tell us if the method call was successful or not:
+
+	UFUNCTION(BlueprintCallable, Category = "Online")
+	bool OnClickJoinGame();
+	
+	-In the implementation file, add:
+	
+	bool UMainMenuWidget::OnClickJoinGame()
+	{
+		ANGDAGameSession* gameSession = GetGameSession();
+		IOnlineSubsystem* onlineSubsystem = IOnlineSubsystem::Get();
+		IOnlineIdentityPtr onlineIdentitySystem = onlineSubsystem->GetIdentityInterface();
+		FOnlineSessionSearchResult searchResult = gameSession->GetSearchResults()[0];
+		return gameSession->JoinSession(onlineIdentitySystem->GetUniquePlayerId(0), FName(*(searchResult.Session.OwningUserName)), searchResult);
+	}
+	
+28. Add a button to the Main Menu blueprint (in editor) that, when clicked, calls its OnClickJoinGame method.
+
+29. Run the project in stand-alone mode on two different machines. Create a game on one machine and find, then join, a game on the other. You will be connected to the created game session.
+	
