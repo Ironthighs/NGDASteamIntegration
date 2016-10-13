@@ -163,26 +163,24 @@ https://answers.unrealengine.com/questions/484873/413-steam-setup-not-working.ht
 
 	void StartSession(FName sessionName);
 	void OnStartSessionComplete(FName InSessionName, bool bWasSuccessful);
+	
+	-Also lets add a boolean for specifying whether we're creating or joining a session. Since StartSession is used for both Creating and Joining sessions, we need to be able to call either ServerTravel or ClientTravel.
+	
+	bool bCreatingSession = false;
 
+	
 	-Add the implementation:
 
-	bool ANGDAGameSession::FindSession(TSharedPtr<const FUniqueNetId> playerId)
+	bool ANGDAGameSession::StartSession(FName sessionName)
 	{
-		if (!OnFindSessionsCompleteDelegate.IsBound())
+		if (!OnStartSessionCompleteDelegate.IsBound())
 		{
-			OnFindSessionsCompleteDelegate = FOnFindSessionsCompleteDelegate::CreateUObject(this, &ANGDAGameSession::OnFindSessionComplete);
+			OnStartSessionCompleteDelegate = FOnStartSessionCompleteDelegate::CreateUObject(this, &ANGDAGameSession::OnStartSessionComplete);
 		}
-
 		IOnlineSubsystem* onlineSubsystem = IOnlineSubsystem::Get();
 		IOnlineSessionPtr session = onlineSubsystem->GetSessionInterface();
-		IOnlineIdentityPtr identitySubsystem = onlineSubsystem->GetIdentityInterface();
-		SessionSearch = MakeShareable(new FOnlineSessionSearch());
-		SessionSearch->bIsLanQuery = false;
-		SessionSearch->MaxSearchResults = 20;
-		SessionSearch->PingBucketSize = 50;
-		SessionSearch->QuerySettings.Set(SEARCH_PRESENCE, true, EOnlineComparisonOp::Equals);
-		OnFindSessionsCompleteDelegateHandle = session->AddOnFindSessionsCompleteDelegate_Handle(OnFindSessionsCompleteDelegate);
-		return session->FindSessions(*playerId, SessionSearch.ToSharedRef());
+		OnStartSessionCompleteDelegateHandle = session->AddOnStartSessionCompleteDelegate_Handle(OnStartSessionCompleteDelegate);
+		return session->StartSession(sessionName);
 	}
 	
 	void ANGDAGameSession::OnStartSessionComplete(FName InSessionName, bool bWasSuccessful)
@@ -192,8 +190,20 @@ https://answers.unrealengine.com/questions/484873/413-steam-setup-not-working.ht
 		session->ClearOnStartSessionCompleteDelegate_Handle(OnStartSessionCompleteDelegateHandle);
 		if (bWasSuccessful)
 		{
-			GEngine->AddOnScreenDebugMessage(-1, 5, FColor::Green, TEXT("Session Started Successfully!"));
-			GetWorld()->ServerTravel(TravelURL);
+			GEngine->AddOnScreenDebugMessage(-1, 5, FColor::Green, FString("Session Started Successfully! ").Append(TravelURL));
+			FString URL;
+			if (bCreatingSession)
+			{
+				GetWorld()->ServerTravel(TravelURL);
+			}
+			else if(session->GetResolvedConnectString(InSessionName, URL))
+			{
+				APlayerController* playerController = GetWorld()->GetFirstPlayerController();
+				if (playerController)
+				{
+					playerController->ClientTravel(URL, ETravelType::TRAVEL_Absolute);
+				}
+			}
 		}
 		else
 		{
