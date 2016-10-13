@@ -17,6 +17,7 @@ class NGDA_API ANGDAGameMode : public AGameMode
 public:
 
 	ANGDAGameMode(const FObjectInitializer& ObjectInitializer);
+
 	virtual TSubclassOf<AGameSession> GetGameSessionClass() const override;
 
 };
